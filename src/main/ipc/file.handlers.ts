@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain, app } from 'electron'
 import { IPC } from '../../shared/ipc-channels'
 import * as fileService from '../services/file.service'
 
@@ -84,5 +84,18 @@ export function registerFileHandlers(ipc: typeof ipcMain): void {
       return true
     }
     return false
+  })
+
+  ipc.handle(IPC.SAVE_IMAGE, async (_event, base64Data: string, docDir: string | null) => {
+    // Determine target directory
+    let targetDir: string
+    if (docDir) {
+      targetDir = `${docDir}/assets`
+    } else {
+      const appData = app.getPath('documents')
+      targetDir = `${appData}/Markdown writing/images`
+    }
+    const filename = await fileService.saveBase64Image(base64Data, targetDir)
+    return { filename, dir: targetDir }
   })
 }

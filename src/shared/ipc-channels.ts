@@ -9,6 +9,7 @@ export const IPC = {
   FILE_CREATE: 'file:create',
   DIR_CREATE: 'dir:create',
   FILE_DELETE: 'file:delete',
+  SAVE_IMAGE: 'image:save',
 
   EXPORT_PDF: 'export:pdf',
   EXPORT_HTML: 'export:html',

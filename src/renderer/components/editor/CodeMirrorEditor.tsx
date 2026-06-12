@@ -7,6 +7,7 @@ import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { searchKeymap } from '@codemirror/search'
 import { useSettingsStore } from '../../stores/settings.store'
+import { useFileStore } from '../../stores/file.store'
 
 interface CodeMirrorEditorProps {
   value: string
@@ -18,7 +19,7 @@ export function CodeMirrorEditor({ value, onChange, onScroll }: CodeMirrorEditor
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const theme = useSettingsStore((s) => s.theme)
-  const isDark = theme === 'dark'
+  const isDark = theme === 'gothic' || theme === 'night'
 
   const handleChange = useCallback(
     (doc: string) => {
@@ -62,6 +63,38 @@ export function CodeMirrorEditor({ value, onChange, onScroll }: CodeMirrorEditor
     if (isDark) {
       extensions.push(oneDark)
     }
+
+    // Image paste handler for source mode — inserts ![image](path) markdown
+    const imagePasteHandler = EditorView.domEventHandlers({
+      paste: (event, view) => {
+        const items = event.clipboardData?.items
+        if (!items) return false
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith('image/')) {
+            event.preventDefault()
+            const file = item.getAsFile()
+            if (!file) continue
+
+            const reader = new FileReader()
+            reader.onload = (e) => {
+              const dataUrl = e.target?.result as string
+              const docPath = useFileStore.getState().currentFile.path
+              const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
+              window.api.file.saveImage(dataUrl, docDir).then((result) => {
+                const src = docDir ? `assets/${result.filename}` : result.filename
+                view.dispatch(view.state.replaceSelection(`![image](${src})`))
+              }).catch(() => {
+                view.dispatch(view.state.replaceSelection(`![image](${dataUrl})`))
+              })
+            }
+            reader.readAsDataURL(file)
+            return true
+          }
+        }
+        return false
+      },
+    })
+    extensions.push(imagePasteHandler)
 
     const state = EditorState.create({
       doc: value,

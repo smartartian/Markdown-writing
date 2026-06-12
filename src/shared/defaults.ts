@@ -1,5 +1,5 @@
 export const DEFAULTS = {
-  THEME: 'light' as const,
+  THEME: 'github' as const,
   EDITOR_FONT_FAMILY: 'Inter, system-ui, -apple-system, sans-serif',
   EDITOR_FONT_SIZE: 16,
   CODE_FONT_FAMILY: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",

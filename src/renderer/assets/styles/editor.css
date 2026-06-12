@@ -174,13 +174,15 @@
   margin-top: 0.25em;
 }
 
-/* ---------- Images ---------- */
+/* ---------- Images (resizable) ---------- */
 
-.tiptap-editor img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 4px;
+[data-image-wrapper] {
   margin: 0.8em 0;
+  vertical-align: middle;
+}
+
+[data-image-wrapper]:hover [data-resize-handle] {
+  display: block !important;
 }
 
 /* ---------- Placeholder ---------- */
@@ -208,6 +210,61 @@
 .tiptap-editor.typewriter-mode {
   padding-top: 40vh;
   padding-bottom: 40vh;
+}
+
+/* ---------- Math (KaTeX) ---------- */
+
+.tiptap-editor .katex {
+  font-size: 1.05em;
+}
+
+.tiptap-editor .katex-display {
+  margin: 1em 0;
+  text-align: center;
+}
+
+.tiptap-editor [data-type="math-inline"] {
+  cursor: pointer;
+}
+
+.tiptap-editor [data-type="math-inline"]:hover {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.tiptap-editor [data-type="math-block"] {
+  cursor: pointer;
+  padding: 1em 0;
+}
+
+.tiptap-editor [data-type="math-block"]:hover {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+/* ---------- Code language label ---------- */
+
+.code-lang-label {
+  position: absolute;
+  top: 0.3em;
+  right: 0.6em;
+  font-size: 0.7em;
+  color: var(--text-muted);
+  font-family: var(--code-font);
+  cursor: pointer;
+  user-select: none;
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.code-lang-label:hover {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.tiptap-editor pre {
+  position: relative;
 }
 
 /* ===== CodeMirror (Source mode) ===== */

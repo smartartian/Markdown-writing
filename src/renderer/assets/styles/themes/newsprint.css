@@ -1,0 +1,10 @@
+.newsprint {
+  --bg-primary: #f9f5f0;
+  --bg-secondary: #f2ece3;
+  --bg-tertiary: #e8e0d3;
+  --text-primary: #333333;
+  --text-secondary: #555555;
+  --text-muted: #8b8175;
+  --accent: #b6400c;
+  --border-color: #d5cdc0;
+}

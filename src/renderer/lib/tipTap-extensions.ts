@@ -14,6 +14,8 @@ import { TaskItem } from '@tiptap/extension-task-item'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
+import { MathBlock, MathInline } from './math-extension'
+import { CodeLanguageLabel } from './code-language-extension'
 
 const lowlight = createLowlight(common)
 
@@ -78,6 +80,8 @@ export const editorExtensions = [
     defaultLanguage: null,
   }),
 
+  CodeLanguageLabel,
+
   Highlight,
 
   Link.configure({
@@ -97,6 +101,9 @@ export const editorExtensions = [
 
   TaskList,
   TaskItem.configure({ nested: true }),
+
+  MathBlock,
+  MathInline,
 
   Placeholder.configure({
     placeholder: ({ node }) => {

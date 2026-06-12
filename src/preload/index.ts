@@ -10,6 +10,7 @@ const api = {
     openPath: (path: string) => ipcRenderer.invoke(IPC.FILE_OPEN_PATH, path),
     create: (dirPath: string, name: string) => ipcRenderer.invoke(IPC.FILE_CREATE, dirPath, name),
     delete: (filePath: string) => ipcRenderer.invoke(IPC.FILE_DELETE, filePath),
+    saveImage: (base64Data: string, docDir: string | null) => ipcRenderer.invoke(IPC.SAVE_IMAGE, base64Data, docDir),
   },
   dir: {
     list: (path: string) => ipcRenderer.invoke(IPC.DIR_LIST, path),

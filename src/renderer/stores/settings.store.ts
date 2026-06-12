@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { DEFAULTS } from '../../shared/defaults'
 
-export type Theme = 'light' | 'dark' | 'sepia'
+export type Theme = 'github' | 'gothic' | 'newsprint' | 'night' | 'pixyll' | 'whitey'
 
 interface SettingsStore {
   theme: Theme
@@ -25,7 +25,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   autoSaveInterval: DEFAULTS.AUTO_SAVE_INTERVAL,
 
   setTheme: (theme) => {
-    document.documentElement.classList.remove('light', 'dark', 'sepia')
+    document.documentElement.classList.remove('github', 'gothic', 'newsprint', 'night', 'pixyll', 'whitey')
     document.documentElement.classList.add(theme)
     localStorage.setItem('md-editor-theme', theme)
     set({ theme })

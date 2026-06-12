@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useEditorStore } from './stores/editor.store'
 import { useFileStore } from './stores/file.store'
 import { useUIStore } from './stores/ui.store'
-import { useSettingsStore } from './stores/settings.store'
+import { useSettingsStore, type Theme } from './stores/settings.store'
 import { WELCOME_CONTENT } from '../shared/defaults'
 import { Sidebar } from './components/sidebar/Sidebar'
 import { StatusBar } from './components/layout/StatusBar'
@@ -28,6 +28,7 @@ export default function App() {
   const setTheme = useSettingsStore((s) => s.setTheme)
 
   const [editorContent, setEditorContent] = useState(WELCOME_CONTENT)
+  const initialContent = sourceContent || editorContent
 
   // Shared file open handler — sets both content and file info atomically
   const openFile = useCallback((info: { path: string; name: string; content: string; lastModified: number }) => {
@@ -38,12 +39,24 @@ export default function App() {
   }, [setSourceContent, updateWordCount, setCurrentFile])
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem('md-editor-theme') as 'light' | 'dark' | 'sepia' | null
+    const savedTheme = localStorage.getItem('md-editor-theme') as Theme | null
     if (savedTheme) {
       setTheme(savedTheme)
     } else {
-      document.documentElement.classList.add(theme)
+      // Follow system preference
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      setTheme(prefersDark ? 'night' : 'github')
     }
+    // Listen for system theme changes
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent) => {
+      const hasUserTheme = localStorage.getItem('md-editor-theme')
+      if (!hasUserTheme) {
+        setTheme(e.matches ? 'night' : 'github')
+      }
+    }
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
   }, [])
 
   const handleOpenFile = useCallback(async () => {
@@ -132,7 +145,7 @@ export default function App() {
           <div className="flex-1 overflow-hidden">
             <MarkdownEditor
               key={`editor-${currentFile.path || 'welcome'}`}
-              initialContent={editorContent}
+              initialContent={initialContent}
             />
           </div>
           {showStatusBar && <StatusBar />}

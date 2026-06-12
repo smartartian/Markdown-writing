@@ -1,0 +1,10 @@
+.whitey {
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f0f0f0;
+  --text-primary: #1a1a1a;
+  --text-secondary: #555555;
+  --text-muted: #888888;
+  --accent: #1a6fc4;
+  --border-color: #e5e5e5;
+}

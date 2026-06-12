@@ -27,9 +27,9 @@ export function StatusBar() {
           title={viewMode === 'wysiwyg' ? '切换到源码模式 (Cmd+/)' : '切换到所见即所得 (Cmd+/)'}
         >
           {viewMode === 'wysiwyg' ? (
-            <><Code2 size={12} />源码</>
-          ) : (
             <><Eye size={12} />预览</>
+          ) : (
+            <><Code2 size={12} />源码</>
           )}
         </button>
       </div>

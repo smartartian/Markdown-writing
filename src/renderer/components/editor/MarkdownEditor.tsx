@@ -9,6 +9,8 @@ import { useAutoSave } from '../../hooks/useAutoSave'
 import { WELCOME_CONTENT } from '../../../shared/defaults'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
 import { ListTree, FolderOpen, Settings } from 'lucide-react'
+import { SearchBar } from './SearchBar'
+import { TableToolbar } from './TableToolbar'
 import '../../assets/styles/editor.css'
 
 interface MarkdownEditorProps {
@@ -36,6 +38,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
   const toggleSettings = useUIStore((s) => s.toggleSettings)
   const [content, setContent] = useState(initialContent || WELCOME_CONTENT)
   const [viewMode, setViewMode] = useState<'wysiwyg' | 'source'>('wysiwyg')
+  const [showSearch, setShowSearch] = useState(false)
   const contentRef = useRef(content)
   contentRef.current = content
 
@@ -73,7 +76,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
         class: `tiptap-editor${focusMode ? ' focus-mode' : ''}${typewriterMode ? ' typewriter-mode' : ''}`,
         spellcheck: 'false',
       },
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
         const items = event.clipboardData?.items
         if (!items) return false
 
@@ -83,33 +86,90 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
             const file = item.getAsFile()
             if (!file) continue
 
+            // Insert immediately with blob URL (synchronous)
+            const blobUrl = URL.createObjectURL(file)
+            const node = view.state.schema.nodes.image.create({ src: blobUrl })
+            view.dispatch(view.state.tr.replaceSelectionWith(node))
+
+            // Save to disk asynchronously, then update with permanent path
             const reader = new FileReader()
             reader.onload = (e) => {
               const dataUrl = e.target?.result as string
-              editor?.chain().focus().setImage({ src: dataUrl }).run()
+              const docPath = useFileStore.getState().currentFile.path
+              const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
+              window.api.file.saveImage(dataUrl, docDir).then((result) => {
+                const newSrc = docDir ? `assets/${result.filename}` : result.filename
+                const { from } = view.state.selection
+                const pos = view.state.doc.resolve(from)
+                const nodeAt = pos.nodeAfter
+                if (nodeAt?.type.name === 'image' && nodeAt.attrs.src === blobUrl) {
+                  view.dispatch(view.state.tr.setNodeAttribute(from - 1, 'src', newSrc))
+                }
+                URL.revokeObjectURL(blobUrl)
+              }).catch(() => { /* keep blob URL */ })
             }
             reader.readAsDataURL(file)
             return true
           }
         }
+
+        // HTML with <img> tag (browser copy image)
+        const htmlItem = Array.from(items).find(i => i.type === 'text/html')
+        if (htmlItem) {
+          htmlItem.getAsString((html) => {
+            const match = html.match(/<img[^>]+src=["']([^"']+)["']/i)
+            if (match && match[1]) {
+              event.preventDefault()
+              const src = match[1]
+              if (src.startsWith('data:')) {
+                // Insert with data URL first, then save to disk
+                view.dispatch(view.state.tr.replaceSelectionWith(
+                  view.state.schema.nodes.image.create({ src }),
+                ))
+                const docPath = useFileStore.getState().currentFile.path
+                const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
+                window.api.file.saveImage(src, docDir).then((result) => {
+                  const newSrc = docDir ? `assets/${result.filename}` : result.filename
+                  const { from } = view.state.selection
+                  const pos = view.state.doc.resolve(from)
+                  const nodeAt = pos.nodeAfter
+                  if (nodeAt?.type.name === 'image') {
+                    view.dispatch(view.state.tr.setNodeAttribute(from - 1, 'src', newSrc))
+                  }
+                }).catch(() => { /* keep data URL */ })
+              } else if (/^https?:/.test(src)) {
+                view.dispatch(view.state.tr.replaceSelectionWith(
+                  view.state.schema.nodes.image.create({ src }),
+                ))
+              }
+            }
+          })
+        }
+
         return false
       },
-      handleDrop: (_view, event) => {
+      handleDrop: (view, event) => {
         const files = event.dataTransfer?.files
         if (!files) return false
 
         for (const file of Array.from(files)) {
           if (file.type.startsWith('image/')) {
             event.preventDefault()
+            event.stopPropagation()
+            // Insert immediately with blob URL
+            const blobUrl = URL.createObjectURL(file)
+            const node = view.state.schema.nodes.image.create({ src: blobUrl })
+            const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })
+            view.dispatch(pos ? view.state.tr.insert(pos.pos, node) : view.state.tr.replaceSelectionWith(node))
+            // Save to disk async
             const reader = new FileReader()
             reader.onload = (e) => {
               const dataUrl = e.target?.result as string
-              const pos = editor?.view.posAtCoords({ left: event.clientX, top: event.clientY })
-              if (pos) {
-                editor?.chain().focus().setTextSelection(pos.pos).setImage({ src: dataUrl }).run()
-              } else {
-                editor?.chain().focus().setImage({ src: dataUrl }).run()
-              }
+              const docPath = useFileStore.getState().currentFile.path
+              const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
+              window.api.file.saveImage(dataUrl, docDir).then((result) => {
+                URL.revokeObjectURL(blobUrl)
+              }).catch(() => { /* keep blob URL */ })
             }
             reader.readAsDataURL(file)
             return true
@@ -183,6 +243,10 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
       setViewMode('source')
       setViewModeStore('source')
     } else {
+      // Sync source mode changes back to the TipTap editor
+      if (editor) {
+        editor.commands.setContent(contentRef.current, { contentType: 'markdown' })
+      }
       setViewMode('wysiwyg')
       setViewModeStore('wysiwyg')
     }
@@ -245,6 +309,10 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
         e.preventDefault()
         toggleTypewriterMode()
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setShowSearch(true)
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -263,7 +331,8 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center pl-20 pr-4 py-2 border-b border-[var(--border-color)]">
+      {/* Row 1: nav buttons + filename + settings */}
+      <div className="flex items-center pl-20 pr-4 py-1 border-b border-[var(--border-color)]">
         <button
           onClick={handleToggleOutline}
           className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors shrink-0 ${
@@ -273,7 +342,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
           }`}
           title="大纲"
         >
-          <ListTree size={15} />
+          <ListTree size={14} />
           大纲
         </button>
         <button
@@ -285,7 +354,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
           }`}
           title="文件"
         >
-          <FolderOpen size={15} />
+          <FolderOpen size={14} />
           文件
         </button>
 
@@ -298,18 +367,26 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
           className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors px-2 py-1 rounded shrink-0"
           title="设置"
         >
-          <Settings size={15} />
+          <Settings size={14} />
           设置
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ fontSize: editorFontSize }}>
-        {viewMode === 'wysiwyg' ? (
-          editor ? <EditorContent editor={editor} /> : null
-        ) : (
+
+      {showSearch && editor && <SearchBar editor={editor} onClose={() => setShowSearch(false)} />}
+
+      <div className="flex-1 overflow-y-auto relative" style={{ fontSize: editorFontSize }}>
+        {editor && viewMode === 'wysiwyg' && <TableToolbar editor={editor} />}
+        {/* WYSIWYG — always mounted, CSS visibility toggle (Typora hybrid rendering) */}
+        <div style={{ display: viewMode === 'wysiwyg' ? 'block' : 'none', height: '100%' }}>
+          {editor && <EditorContent editor={editor} />}
+        </div>
+        {/* Source mode — always mounted, CSS visibility toggle */}
+        <div style={{ display: viewMode === 'source' ? 'block' : 'none', height: '100%' }}>
           <CodeMirrorEditor value={content} onChange={handleSourceChange} />
-        )}
+        </div>
       </div>
     </div>
   )
 }
+
