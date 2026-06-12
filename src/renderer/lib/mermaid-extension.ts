@@ -43,20 +43,15 @@ export const MermaidBlock = Node.create({
       container.className = 'mermaid-container'
       container.textContent = node.attrs.code || ''
 
-      // Render with mermaid if available
-      const renderDiagram = () => {
+      // Lazily import mermaid and render
+      const renderDiagram = async () => {
+        if (!node.attrs.code) return
         try {
-          const mermaid = (window as any).mermaid
-          if (mermaid && node.attrs.code) {
-            container.textContent = ''
-            container.removeAttribute('data-processed')
-            const id = 'mermaid-' + Math.random().toString(36).slice(2, 8)
-            mermaid.render(id, node.attrs.code).then((result: { svg: string }) => {
-              container.innerHTML = result.svg
-            }).catch(() => {
-              container.textContent = node.attrs.code
-            })
-          }
+          const mermaid = await import('mermaid/dist/mermaid.min.js')
+          mermaid.default.initialize({ startOnLoad: false })
+          const id = 'mermaid-' + Math.random().toString(36).slice(2, 8)
+          const { svg } = await mermaid.default.render(id, node.attrs.code)
+          container.innerHTML = svg
         } catch {
           container.textContent = node.attrs.code
         }

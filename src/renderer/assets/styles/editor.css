@@ -174,15 +174,16 @@
   margin-top: 0.25em;
 }
 
-/* ---------- Images (resizable) ---------- */
+/* ---------- Images ---------- */
 
-[data-image-wrapper] {
-  margin: 0.8em 0;
-  vertical-align: middle;
+.tiptap-editor img {
+  border-radius: 4px;
+  cursor: pointer;
 }
 
-[data-image-wrapper]:hover [data-resize-handle] {
-  display: block !important;
+.tiptap-editor img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ---------- Placeholder ---------- */

@@ -64,11 +64,12 @@ export function CodeMirrorEditor({ value, onChange, onScroll }: CodeMirrorEditor
       extensions.push(oneDark)
     }
 
-    // Image paste handler for source mode — inserts ![image](path) markdown
+    // Image paste handler for source mode — saves to assets/ and inserts ![image](path)
     const imagePasteHandler = EditorView.domEventHandlers({
       paste: (event, view) => {
         const items = event.clipboardData?.items
         if (!items) return false
+
         for (const item of Array.from(items)) {
           if (item.type.startsWith('image/')) {
             event.preventDefault()
@@ -81,7 +82,7 @@ export function CodeMirrorEditor({ value, onChange, onScroll }: CodeMirrorEditor
               const docPath = useFileStore.getState().currentFile.path
               const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
               window.api.file.saveImage(dataUrl, docDir).then((result) => {
-                const src = docDir ? `assets/${result.filename}` : result.filename
+                const src = docDir ? `assets/${result.filename}` : `${result.dir}/${result.filename}`
                 view.dispatch(view.state.replaceSelection(`![image](${src})`))
               }).catch(() => {
                 view.dispatch(view.state.replaceSelection(`![image](${dataUrl})`))
@@ -91,6 +92,20 @@ export function CodeMirrorEditor({ value, onChange, onScroll }: CodeMirrorEditor
             return true
           }
         }
+
+        // Handle HTML with <img> tag (browser copy image)
+        const htmlItem = Array.from(items).find(i => i.type === 'text/html')
+        if (htmlItem) {
+          htmlItem.getAsString((html) => {
+            const match = html.match(/<img[^>]+src=["']([^"']+)["']/i)
+            if (match && match[1]) {
+              event.preventDefault()
+              const src = match[1]
+              view.dispatch(view.state.replaceSelection(`![image](${src})`))
+            }
+          })
+        }
+
         return false
       },
     })
