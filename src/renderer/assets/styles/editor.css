@@ -267,6 +267,18 @@
   position: relative;
 }
 
+/* ---------- Mermaid diagrams ---------- */
+
+.mermaid-wrapper {
+  margin: 1em 0;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.mermaid-wrapper svg {
+  max-width: 100%;
+}
+
 /* ===== CodeMirror (Source mode) ===== */
 
 .cm-editor-container .cm-editor {

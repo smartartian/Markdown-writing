@@ -223,6 +223,13 @@ function hello() {
 
 块级公式：
 $$\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$
+
+\`\`\`mermaid
+graph TD
+    A[开始] --> B{判断}
+    B -->|是| C[执行]
+    B -->|否| D[结束]
+\`\`\`
 `
 
 function UsageGuide() {

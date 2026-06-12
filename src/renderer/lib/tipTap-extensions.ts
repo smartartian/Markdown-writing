@@ -16,6 +16,7 @@ import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { common, createLowlight } from 'lowlight'
 import { MathBlock, MathInline } from './math-extension'
 import { CodeLanguageLabel } from './code-language-extension'
+import { MermaidBlock } from './mermaid-extension'
 
 const lowlight = createLowlight(common)
 
@@ -104,6 +105,7 @@ export const editorExtensions = [
 
   MathBlock,
   MathInline,
+  MermaidBlock,
 
   Placeholder.configure({
     placeholder: ({ node }) => {
