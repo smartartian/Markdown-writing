@@ -1,0 +1,15 @@
+appId: com.markdownwriting.app
+productName: Markdown writing
+directories:
+  output: dist
+  buildResources: resources
+mac:
+  icon: resources/logo.png
+  category: public.app-category.productivity
+win:
+  icon: resources/logo.png
+linux:
+  icon: resources/logo.png
+files:
+  - out/**/*
+  - resources/logo.png

@@ -1,0 +1,237 @@
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { useFileStore } from '../../stores/file.store'
+import type { FileTreeNode } from '../../../preload/index.d'
+import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen, RefreshCw, FilePlus, FolderPlus, Trash2 } from 'lucide-react'
+import { cn } from '../../lib/utils'
+
+interface ContextMenu {
+  x: number
+  y: number
+  targetPath: string
+  targetIsDir: boolean
+}
+
+interface FileTreeProps {
+  onOpenFile: (info: { path: string; name: string; content: string; lastModified: number }) => void
+}
+
+export function FileTree({ onOpenFile }: FileTreeProps) {
+  const fileTree = useFileStore((s) => s.fileTree)
+  const setFileTree = useFileStore((s) => s.setFileTree)
+  const currentFile = useFileStore((s) => s.currentFile)
+  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set())
+  const [rootPath, setRootPath] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  const loadDirectory = useCallback(async (dirPath: string) => {
+    setLoading(true)
+    try {
+      const tree = await window.api.dir.list(dirPath)
+      setFileTree(tree)
+      setRootPath(dirPath)
+    } catch {
+      console.error('读取文件夹失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [setFileTree])
+
+  const handleSelectFolder = async () => {
+    const folderPath = await window.api.dialog.openFolder()
+    if (folderPath) await loadDirectory(folderPath)
+  }
+
+  const handleRefresh = () => {
+    if (rootPath) loadDirectory(rootPath)
+  }
+
+  const handleOpenFile = useCallback(async (path: string) => {
+    try {
+      const file = await window.api.file.openPath(path)
+      if (file) {
+        onOpenFile({ path: file.path, name: file.name, content: file.content, lastModified: file.lastModified })
+      }
+    } catch {
+      console.error('打开文件失败')
+    }
+  }, [onOpenFile])
+
+  const toggleFolder = (path: string) => {
+    setOpenFolders((prev) => {
+      const next = new Set(prev)
+      next.has(path) ? next.delete(path) : next.add(path)
+      return next
+    })
+  }
+
+  // Right-click context menu
+  const handleContextMenu = (e: React.MouseEvent, path: string, isDir: boolean) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, targetPath: path, targetIsDir: isDir })
+  }
+
+  // Close menu on outside click
+  useEffect(() => {
+    const handler = () => setContextMenu(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [])
+
+  const handleNewFile = async () => {
+    if (!contextMenu) return
+    const parentPath = contextMenu.targetIsDir ? contextMenu.targetPath : contextMenu.targetPath.replace(/\/[^/]+$/, '')
+    const name = `未命名${Date.now().toString(36)}`
+    await window.api.file.create(parentPath, name)
+    if (rootPath) loadDirectory(rootPath)
+    setContextMenu(null)
+  }
+
+  const handleNewFolder = async () => {
+    if (!contextMenu) return
+    const parentPath = contextMenu.targetIsDir ? contextMenu.targetPath : contextMenu.targetPath.replace(/\/[^/]+$/, '')
+    const name = `新建文件夹${Date.now().toString(36)}`
+    await window.api.dir.create(parentPath, name)
+    if (rootPath) loadDirectory(rootPath)
+    setContextMenu(null)
+  }
+
+  const handleDelete = async () => {
+    if (!contextMenu) return
+    const deleted = await window.api.file.delete(contextMenu.targetPath)
+    if (deleted && rootPath) loadDirectory(rootPath)
+    setContextMenu(null)
+  }
+
+  const renderFileName = (name: string) => name.replace(/\.(md|markdown|txt)$/i, '')
+
+  const renderNode = (node: FileTreeNode, depth: number) => {
+    const isOpen = openFolders.has(node.path)
+    const isActive = currentFile.path === node.path
+
+    if (node.isDirectory) {
+      return (
+        <div key={node.path}>
+          <button
+            onClick={() => toggleFolder(node.path)}
+            onContextMenu={(e) => handleContextMenu(e, node.path, true)}
+            className="flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)]"
+            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          >
+            {isOpen ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+            {isOpen ? <FolderOpen size={14} className="shrink-0" /> : <Folder size={14} className="shrink-0" />}
+            <span className="truncate">{node.name}</span>
+          </button>
+          {isOpen && node.children?.map((child) => renderNode(child, depth + 1))}
+        </div>
+      )
+    }
+
+    return (
+      <button
+        key={node.path}
+        onClick={() => handleOpenFile(node.path)}
+        onContextMenu={(e) => handleContextMenu(e, node.path, false)}
+        className={cn(
+          'flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors',
+          isActive ? 'bg-[var(--bg-tertiary)] text-[var(--accent)] font-medium' : 'text-[var(--text-secondary)]',
+        )}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+      >
+        <FileText size={14} className="shrink-0" />
+        <span className="truncate">{renderFileName(node.name)}</span>
+      </button>
+    )
+  }
+
+  const mdFileCount = countMdFiles(fileTree)
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Folder selector */}
+      <div className="px-3 py-3 border-b border-[var(--border-color)]">
+        <button
+          onClick={handleSelectFolder}
+          className="flex items-center gap-2 w-full px-3 py-1.5 rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] text-sm hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          <FolderOpen size={15} />
+          选择文件夹
+        </button>
+        {rootPath && (
+          <div className="mt-2 flex items-center justify-between">
+            <div className="text-xs text-[var(--text-muted)] truncate flex-1" title={rootPath}>
+              {rootPath.split('/').pop() || rootPath}
+            </div>
+            <button onClick={handleRefresh} className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] transition-colors shrink-0" title="刷新">
+              <RefreshCw size={13} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* File list */}
+      <div className="flex-1 overflow-y-auto py-1">
+        {loading ? (
+          <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">读取中...</div>
+        ) : rootPath ? (
+          <>
+            <div className="px-3 py-1 mb-1">
+              <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                {mdFileCount} 个文档
+              </span>
+            </div>
+            {fileTree.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">未找到 Markdown 文件</div>
+            ) : (
+              fileTree.map((node) => renderNode(node, 0))
+            )}
+          </>
+        ) : (
+          <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">点击上方按钮选择一个文件夹</div>
+        )}
+      </div>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          ref={menuRef}
+          className="fixed z-50 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg shadow-lg py-1 min-w-[160px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={handleNewFile}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+          >
+            <FilePlus size={14} />
+            新建 Markdown 文件
+          </button>
+          <button
+            onClick={handleNewFolder}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+          >
+            <FolderPlus size={14} />
+            新建文件夹
+          </button>
+          <div className="border-t border-[var(--border-color)] my-0.5" />
+          <button
+            onClick={handleDelete}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-red-500 hover:bg-[var(--bg-secondary)] transition-colors"
+          >
+            <Trash2 size={14} />
+            删除
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function countMdFiles(nodes: FileTreeNode[]): number {
+  let count = 0
+  for (const node of nodes) {
+    if (node.isDirectory && node.children) count += countMdFiles(node.children)
+    else if (!node.isDirectory) count++
+  }
+  return count
+}
