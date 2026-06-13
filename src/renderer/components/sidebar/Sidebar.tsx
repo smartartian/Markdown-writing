@@ -25,7 +25,7 @@ export function Sidebar({ onOpenFile }: SidebarProps) {
       <div className="h-10 shrink-0" />
 
       {/* Header with tabs — Typora style */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)]">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)]" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <div className="flex gap-4">
           <button
             onClick={() => setSidebarTab('files')}

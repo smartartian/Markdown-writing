@@ -13,12 +13,16 @@ interface EditorStore {
   headings: HeadingItem[]
   viewMode: 'wysiwyg' | 'source'
   sourceToggleCount: number
+  paragraphAction: string | null
+  paragraphActionCount: number
 
   setSourceContent: (content: string) => void
   updateWordCount: (markdown: string) => void
   setHeadings: (headings: HeadingItem[]) => void
   setViewMode: (mode: 'wysiwyg' | 'source') => void
   requestSourceToggle: () => void
+  requestParagraphAction: (action: string) => void
+  clearParagraphAction: () => void
 }
 
 export const useEditorStore = create<EditorStore>((set) => ({
@@ -28,6 +32,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
   headings: [],
   viewMode: 'wysiwyg',
   sourceToggleCount: 0,
+  paragraphAction: null,
+  paragraphActionCount: 0,
 
   setSourceContent: (content) => set({ sourceContent: content }),
 
@@ -41,4 +47,6 @@ export const useEditorStore = create<EditorStore>((set) => ({
   setHeadings: (headings) => set({ headings }),
   setViewMode: (mode) => set({ viewMode: mode }),
   requestSourceToggle: () => set((s) => ({ sourceToggleCount: s.sourceToggleCount + 1 })),
+  requestParagraphAction: (action) => set((s) => ({ paragraphAction: action, paragraphActionCount: s.paragraphActionCount + 1 })),
+  clearParagraphAction: () => set({ paragraphAction: null }),
 }))

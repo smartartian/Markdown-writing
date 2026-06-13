@@ -13,7 +13,8 @@ const ORDERED_LIST_RE = /^(\s*)(\d+)\.\s+(.*)$/
 const TASK_LIST_RE = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/
 const TABLE_ROW_RE = /^\|(.+)\|$/
 const TABLE_SEP_RE = /^\|(\s*:?-+:?\s*\|)+\s*$/
-const MATH_BLOCK_RE = /^\$\$\s*$/
+const MATH_SINGLE_RE = /^\$\$([\s\S]*?)\$\$$/
+const MATH_OPEN_RE = /^\$\$\s*$/
 const EMPTY_RE = /^\s*$/
 
 /**
@@ -25,6 +26,7 @@ export function tokenize(markdown: string): LineToken[] {
   const tokens: LineToken[] = []
   let inCodeFence = false
   let fenceChar = ''
+  let inMathBlock = false
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -43,6 +45,17 @@ export function tokenize(markdown: string): LineToken[] {
       continue
     }
 
+    // Math block state
+    if (inMathBlock) {
+      if (trimmed.match(MATH_OPEN_RE)) {
+        inMathBlock = false
+        tokens.push({ type: 'math_block_end', indent: 0, content: '' })
+        continue
+      }
+      tokens.push({ type: 'math_content', indent: 0, content: line })
+      continue
+    }
+
     // Potential code fence start
     const fenceMatch = trimmed.match(CODE_FENCE_RE)
     if (fenceMatch) {
@@ -52,9 +65,17 @@ export function tokenize(markdown: string): LineToken[] {
       continue
     }
 
-    // Math block
-    if (trimmed.match(MATH_BLOCK_RE)) {
-      tokens.push({ type: 'math_block', indent: 0, content: '' })
+    // Math block — single line: $$\frac{-b}{2a}$$
+    const mathSingle = trimmed.match(MATH_SINGLE_RE)
+    if (mathSingle) {
+      tokens.push({ type: 'math_block', indent: 0, content: mathSingle[1].trim() })
+      continue
+    }
+
+    // Math block — multi-line start/end: $$ on its own line
+    if (trimmed.match(MATH_OPEN_RE)) {
+      inMathBlock = true
+      tokens.push({ type: 'math_block_start', indent: 0, content: '' })
       continue
     }
 

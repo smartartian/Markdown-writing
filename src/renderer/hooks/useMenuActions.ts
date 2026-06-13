@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useUIStore } from '../stores/ui.store'
+import { useEditorStore } from '../stores/editor.store'
 
 interface MenuActionCallbacks {
   onOpenFile: () => void
@@ -14,6 +15,7 @@ export function useMenuActions(callbacks: MenuActionCallbacks): void {
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const toggleFocusMode = useUIStore((s) => s.toggleFocusMode)
   const toggleTypewriterMode = useUIStore((s) => s.toggleTypewriterMode)
+  const requestParagraphAction = useEditorStore((s) => s.requestParagraphAction)
 
   useEffect(() => {
     const unsubscribe = window.api.on.menuAction((action: string) => {
@@ -45,9 +47,17 @@ export function useMenuActions(callbacks: MenuActionCallbacks): void {
         case 'toggle-typewriter':
           toggleTypewriterMode()
           break
+        case 'window:new':
+          window.api.app.newWindow()
+          break
+        default:
+          if (action.startsWith('paragraph:')) {
+            requestParagraphAction(action)
+          }
+          break
       }
     })
 
     return unsubscribe
-  }, [callbacks, toggleSidebar, toggleFocusMode, toggleTypewriterMode])
+  }, [callbacks, toggleSidebar, toggleFocusMode, toggleTypewriterMode, requestParagraphAction])
 }

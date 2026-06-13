@@ -1,6 +1,6 @@
 {
   "name": "markdown-writing",
-  "productName": "Markdown writing",
+  "productName": "Markdown Writing",
   "version": "1.0.0",
   "description": "A WYSIWYG markdown editor",
   "main": "./out/main/index.js",

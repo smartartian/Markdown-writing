@@ -1,6 +1,6 @@
 /**
  * Block parser: converts line tokens into an AST of BlockNodes.
- * Handles nesting (lists, blockquotes, code blocks, tables).
+ * Handles nesting (lists, blockquotes, code blocks, tables, math).
  */
 import type { BlockNode, LineToken, InlineToken, TextNode as TN } from './types'
 import { parseInline } from './inline-parser'
@@ -49,6 +49,8 @@ export function parseBlocks(tokens: LineToken[]): BlockNode[] {
 
       case 'blockquote': {
         const quoteLines: LineToken[] = []
+        // Include the first blockquote line
+        quoteLines.push({ ...token, type: 'paragraph' })
         i++
         while (i < tokens.length && (tokens[i].type === 'blockquote' || tokens[i].type === 'paragraph')) {
           if (tokens[i].type === 'blockquote') {
@@ -57,13 +59,13 @@ export function parseBlocks(tokens: LineToken[]): BlockNode[] {
             quoteLines.push(tokens[i])
           }
           i++
-          // Stop at empty line
           if (i < tokens.length && tokens[i].type === 'empty') { i++; break }
         }
-        blocks.push({
-          type: 'blockquote',
-          content: parseBlocks(quoteLines).flatMap(b => b.content || []),
+        const bqContent = parseBlocks(quoteLines).flatMap(b => {
+          if (b.type === 'paragraph' && b.content) return [{ type: 'paragraph' as const, content: b.content }]
+          return []
         })
+        blocks.push({ type: 'blockquote', content: bqContent })
         break
       }
 
@@ -72,10 +74,7 @@ export function parseBlocks(tokens: LineToken[]): BlockNode[] {
         const isOrdered = listItems[0]?.ordered
         blocks.push({
           type: isOrdered ? 'orderedList' : 'bulletList',
-          content: listItems.map(item => ({
-            type: 'listItem' as const,
-            content: [{ type: 'text', text: item.content }],
-          })),
+          content: buildNestedListItems(listItems, isOrdered),
         })
         i = listItems[listItems.length - 1]?.endIndex ?? i + 1
         break
@@ -85,11 +84,7 @@ export function parseBlocks(tokens: LineToken[]): BlockNode[] {
         const taskItems = parseTaskItems(tokens, i)
         blocks.push({
           type: 'taskList',
-          content: taskItems.map(item => ({
-            type: 'taskItem' as const,
-            checked: item.checked,
-            content: [{ type: 'text', text: item.content }],
-          })),
+          content: buildNestedTaskItems(taskItems),
         })
         i = taskItems[taskItems.length - 1]?.endIndex ?? i + 1
         break
@@ -108,9 +103,25 @@ export function parseBlocks(tokens: LineToken[]): BlockNode[] {
         break
       }
 
+      // Single-line math block: $$\frac{-b}{2a}$$
       case 'math_block': {
         blocks.push({ type: 'mathBlock', text: token.content })
         i++
+        break
+      }
+
+      // Multi-line math block start: $$ on its own line
+      case 'math_block_start': {
+        const mathLines: string[] = []
+        i++
+        while (i < tokens.length) {
+          if (tokens[i].type === 'math_block_end') { i++; break }
+          if (tokens[i].type === 'math_content') {
+            mathLines.push(tokens[i].content)
+          }
+          i++
+        }
+        blocks.push({ type: 'mathBlock', text: mathLines.join('\n') })
         break
       }
 
@@ -131,17 +142,15 @@ export function parseBlocks(tokens: LineToken[]): BlockNode[] {
           const text = lines.join('\n')
           const inlines = parseInline(text)
           // Separate images from text content
-          const textTokens = inlines.filter(t => t.type !== 'image')
+          const nonImage = inlines.filter(t => t.type !== 'image')
           const imageTokens = inlines.filter(t => t.type === 'image')
-          // Add images as standalone blocks
           for (const img of imageTokens) {
             if (img.type === 'image') {
               blocks.push({ type: 'image', url: img.src, alt: img.alt })
             }
           }
-          // Add paragraph with remaining text content
-          if (textTokens.length > 0) {
-            blocks.push({ type: 'paragraph', content: textTokens.map(c => inlineToTextNode(c)).flat() })
+          if (nonImage.length > 0) {
+            blocks.push({ type: 'paragraph', content: inlineNodesToContent(nonImage) })
           }
         } else {
           i++
@@ -154,8 +163,91 @@ export function parseBlocks(tokens: LineToken[]): BlockNode[] {
   return blocks
 }
 
+/** Convert inline tokens to content nodes (text, mathInline, etc.) */
+function inlineNodesToContent(tokens: InlineToken[]): (TN | { type: string; attrs?: Record<string, unknown>; text?: string; marks?: TN['marks'] })[] {
+  return tokens.map(token => {
+    switch (token.type) {
+      case 'text':
+        return { type: 'text' as const, text: token.text }
+      case 'bold':
+        return { type: 'text' as const, text: token.children?.map(c => c.type === 'text' ? c.text : '').join('') || '', marks: [{ type: 'bold' as const }] }
+      case 'italic':
+        return { type: 'text' as const, text: token.children?.map(c => c.type === 'text' ? c.text : '').join('') || '', marks: [{ type: 'italic' as const }] }
+      case 'strike':
+        return { type: 'text' as const, text: token.children?.map(c => c.type === 'text' ? c.text : '').join('') || '', marks: [{ type: 'strike' as const }] }
+      case 'code':
+        return { type: 'text' as const, text: token.text, marks: [{ type: 'code' as const }] }
+      case 'link':
+        return { type: 'text' as const, text: token.text, marks: [{ type: 'link' as const, attrs: { href: token.href } }] }
+      case 'mathInline':
+        return { type: 'mathInline', attrs: { latex: token.latex } }
+      case 'hardBreak':
+        return { type: 'hardBreak' } as any
+      case 'image':
+        return { type: 'text' as const, text: '' }
+    }
+  })
+}
+
 interface ListItemData extends LineToken {
   endIndex: number
+}
+
+/** Build nested list structure from flat list items based on indentation. */
+function buildNestedListItems(items: ListItemData[], isOrdered: boolean): BlockNode[] {
+  const baseIndent = Math.min(...items.map(i => i.indent))
+  return groupItems(items, baseIndent, isOrdered, false)
+}
+
+function buildNestedTaskItems(items: ListItemData[]): BlockNode[] {
+  const baseIndent = Math.min(...items.map(i => i.indent))
+  return groupItems(items, baseIndent, false, true)
+}
+
+function groupItems(items: ListItemData[], baseIndent: number, isOrdered: boolean, isTask: boolean): BlockNode[] {
+  const result: BlockNode[] = []
+  let i = 0
+
+  while (i < items.length) {
+    const item = items[i]
+    const inlineContent = parseInline(item.content)
+    const para = { type: 'paragraph' as const, content: inlineNodesToContent(inlineContent) }
+    const children: BlockNode[] = []
+
+    // Collect nested items (indent > baseIndent) that follow this item
+    let j = i + 1
+    while (j < items.length && items[j].indent > baseIndent) {
+      j++
+    }
+    if (j > i + 1) {
+      const nested = items.slice(i + 1, j)
+      const nestedBase = Math.min(...nested.map(it => it.indent))
+      const nestedIsOrdered = nested[0]?.ordered ?? false
+      const nestedIsTask = nested[0]?.type === 'task_item'
+      if (nestedIsTask) {
+        children.push({ type: 'taskList', content: groupItems(nested, nestedBase, false, true) })
+      } else {
+        children.push({ type: nestedIsOrdered ? 'orderedList' : 'bulletList', content: groupItems(nested, nestedBase, nestedIsOrdered, false) })
+      }
+    }
+
+    if (isTask) {
+      result.push({
+        type: 'taskItem' as const,
+        checked: item.checked ?? false,
+        content: [para, ...children],
+      })
+    } else {
+      result.push({
+        type: 'listItem' as const,
+        content: [para, ...children],
+      })
+    }
+
+    i = j
+  }
+
+  return result
 }
 
 function parseListItems(tokens: LineToken[], start: number): ListItemData[] {
@@ -198,7 +290,6 @@ function parseTable(tokens: LineToken[], start: number): ParsedTable {
   rows.push({ type: 'tableRow', content: cells })
   let i = start + 1
 
-  // Skip separator row
   if (i < tokens.length && tokens[i].type === 'table_sep') {
     i++
   }
@@ -214,28 +305,4 @@ function parseTable(tokens: LineToken[], start: number): ParsedTable {
   }
 
   return { type: 'table', content: rows, _endIndex: i }
-}
-
-function inlineToTextNode(token: InlineToken): TN[] {
-  switch (token.type) {
-    case 'text':
-      return [{ type: 'text', text: token.text }]
-    case 'bold':
-      return [{ type: 'text', text: token.children?.map(c => c.type === 'text' ? c.text : '').join('') || '', marks: [{ type: 'bold' }] }]
-    case 'italic':
-      return [{ type: 'text', text: token.children?.map(c => c.type === 'text' ? c.text : '').join('') || '', marks: [{ type: 'italic' }] }]
-    case 'strike':
-      return [{ type: 'text', text: token.children?.map(c => c.type === 'text' ? c.text : '').join('') || '', marks: [{ type: 'strike' }] }]
-    case 'code':
-      return [{ type: 'text', text: token.text, marks: [{ type: 'code' }] }]
-    case 'link':
-      return [{ type: 'text', text: token.text, marks: [{ type: 'link', attrs: { href: token.href } }] }]
-    case 'image':
-      // Images are block-level, not inline in our output (handled by schema)
-      return []
-    case 'mathInline':
-      return [{ type: 'text', text: token.latex }]
-    case 'hardBreak':
-      return []
-  }
 }

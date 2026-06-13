@@ -12,6 +12,7 @@ import { ListTree, FolderOpen, Settings } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import type { JSONContent } from '../../lib/incremental-parser'
 import { TableToolbar } from './TableToolbar'
+import { ImageToolbar } from './ImageToolbar'
 import '../../assets/styles/editor.css'
 
 interface MarkdownEditorProps {
@@ -65,7 +66,12 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
       updateWordCount(md)
     },
     onUpdate: ({ editor: ed }) => {
-      const md = ed.getMarkdown?.() ?? ''
+      let md = ed.getMarkdown?.() ?? ''
+      // Fix absolute paths in images for Electron: encode spaces/special chars
+      md = md.replace(/!\[([^\]]*)\]\((\/[^)]+)\)/g, (_, alt, path) => {
+        const encoded = path.replace(/ /g, '%20')
+        return `![${alt}](file://${encoded})`
+      })
       setContent(md)
       setSourceContent(md)
       updateWordCount(md)
@@ -94,8 +100,9 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
               const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
               try {
                 const result = await window.api.file.saveImage(dataUrl, docDir)
-                // Display: use file:// absolute path (Electron resolves correctly)
-                const displaySrc = `file://${result.dir}/${result.filename}`
+                // Display: use file:// protocol (bypasses mixed-content blocking)
+                const rawPath = `${result.dir}/${result.filename}`
+                const displaySrc = `file://${rawPath.split('/').map(encodeURIComponent).join('/')}`
                 const node = view.state.schema.nodes.image.create({ src: displaySrc })
                 view.dispatch(view.state.tr.replaceSelectionWith(node))
                 // Markdown: use relative path for portability
@@ -125,7 +132,8 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
         const filePath = (file as any).path
         if (filePath) {
           window.api.file.copyImage(filePath, docDir).then((result) => {
-            const displaySrc = `file://${result.dir}/${result.filename}`
+            const rawPath = `${result.dir}/${result.filename}`
+            const displaySrc = `file://${rawPath.split('/').map(encodeURIComponent).join('/')}`
             const node = view.state.schema.nodes.image.create({ src: displaySrc })
             view.dispatch(dropPos ? view.state.tr.insert(dropPos.pos, node) : view.state.tr.replaceSelectionWith(node))
           }).catch(() => {
@@ -215,7 +223,13 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
       setViewModeStore('source')
     } else {
       if (editor) {
-        editor.commands.setContent(contentRef.current, { contentType: 'markdown' })
+        // Fix absolute paths for Electron display
+        let md = contentRef.current
+        md = md.replace(/!\[([^\]]*)\]\((\/[^)]+)\)/g, (_, alt, path) => {
+        const encoded = path.split('/').map(encodeURIComponent).join('/')
+        return `![${alt}](file://${encoded})`
+      })
+        editor.commands.setContent(md, { contentType: 'markdown' })
       }
       setViewMode('wysiwyg')
       setViewModeStore('wysiwyg')
@@ -223,14 +237,105 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
   }, [viewMode, editor, setViewModeStore])
 
   // Listen for toggle request from StatusBar (skip initial mount)
-  const mountedRef = useRef(false)
+  const prevToggleRef = useRef(sourceToggleCount)
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true
-      return
-    }
+    if (prevToggleRef.current === sourceToggleCount) return
+    prevToggleRef.current = sourceToggleCount
     toggleSourceMode()
   }, [sourceToggleCount])
+
+  // Listen for paragraph actions from the menu bar
+  const paragraphActionCount = useEditorStore((s) => s.paragraphActionCount)
+  const paragraphAction = useEditorStore((s) => s.paragraphAction)
+  const clearParagraphAction = useEditorStore((s) => s.clearParagraphAction)
+  const prevParActionRef = useRef(paragraphActionCount)
+  useEffect(() => {
+    if (prevParActionRef.current === paragraphActionCount || !editor || !paragraphAction) return
+    prevParActionRef.current = paragraphActionCount
+
+    const action = paragraphAction.replace('paragraph:', '')
+    editor.commands.focus()
+
+    switch (action) {
+      case 'heading-1': editor.commands.toggleHeading({ level: 1 }); break
+      case 'heading-2': editor.commands.toggleHeading({ level: 2 }); break
+      case 'heading-3': editor.commands.toggleHeading({ level: 3 }); break
+      case 'heading-4': editor.commands.toggleHeading({ level: 4 }); break
+      case 'heading-5': editor.commands.toggleHeading({ level: 5 }); break
+      case 'heading-6': editor.commands.toggleHeading({ level: 6 }); break
+      case 'paragraph': editor.commands.setParagraph(); break
+      case 'heading-up': {
+        const hNode = editor.state.selection.$from.node(-1)
+        if (hNode.type.name === 'heading') {
+          const lvl = Math.max(1, hNode.attrs.level - 1)
+          editor.commands.toggleHeading({ level: lvl })
+        }
+        break
+      }
+      case 'heading-down': {
+        const hNode = editor.state.selection.$from.node(-1)
+        if (hNode.type.name === 'heading') {
+          const lvl = Math.min(6, hNode.attrs.level + 1)
+          editor.commands.toggleHeading({ level: lvl })
+        }
+        break
+      }
+      case 'table-insert': editor.commands.insertTable({ rows: 3, cols: 3, withHeaderRow: true }); break
+      case 'table-add-column-before': editor.commands.addColumnBefore(); break
+      case 'table-add-column-after': editor.commands.addColumnAfter(); break
+      case 'table-delete-column': editor.commands.deleteColumn(); break
+      case 'table-add-row-before': editor.commands.addRowBefore(); break
+      case 'table-add-row-after': editor.commands.addRowAfter(); break
+      case 'table-delete-row': editor.commands.deleteRow(); break
+      case 'table-delete': editor.commands.deleteTable(); break
+      case 'code-block': editor.commands.toggleCodeBlock(); break
+      case 'math-block': {
+        editor.commands.insertContent({ type: 'mathBlock', attrs: { latex: '' } })
+        break
+      }
+      case 'blockquote': editor.commands.toggleBlockquote(); break
+      case 'ordered-list': editor.commands.toggleOrderedList(); break
+      case 'bullet-list': editor.commands.toggleBulletList(); break
+      case 'task-list': editor.commands.toggleTaskList(); break
+      case 'task-toggle': editor.commands.toggleTaskItem?.(); break
+      case 'indent': editor.commands.sinkListItem('listItem'); break
+      case 'outdent': editor.commands.liftListItem('listItem'); break
+      case 'insert-above': {
+        const { $from } = editor.state.selection
+        const pos = $from.before(1)
+        editor.commands.insertContentAt(Math.max(0, pos), { type: 'paragraph' })
+        break
+      }
+      case 'insert-below': {
+        const { $to } = editor.state.selection
+        const pos = $to.after(1)
+        editor.commands.insertContentAt(Math.min(editor.state.doc.content.size, pos), { type: 'paragraph' })
+        break
+      }
+      case 'link-ref': {
+        const sel = editor.state.selection
+        const text = sel.empty ? '链接' : editor.state.doc.textBetween(sel.from, sel.to)
+        editor.commands.insertContent(`[${text}][ref]`)
+        break
+      }
+      case 'footnote': {
+        editor.commands.insertContent('[^1]')
+        break
+      }
+      case 'horizontal-rule': editor.commands.setHorizontalRule(); break
+      case 'toc': {
+        editor.commands.insertContent('\n[toc]\n')
+        break
+      }
+      case 'yaml': {
+        const today = new Date().toISOString().slice(0, 10)
+        editor.commands.insertContent(`---\ntitle: \ndate: ${today}\ntags: []\n---\n\n`)
+        break
+      }
+    }
+
+    clearParagraphAction()
+  }, [paragraphActionCount])
 
   const handleToggleOutline = useCallback(() => {
     if (sidebarOpen && sidebarTab === 'outline') {
@@ -256,7 +361,12 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
       if (editor && viewMode === 'wysiwyg') {
         const current = editor.getMarkdown?.() ?? ''
         if (initialContent !== current) {
-          editor.commands.setContent(initialContent, { contentType: 'markdown' })
+          let md = initialContent
+          md = md.replace(/!\[([^\]]*)\]\((\/[^)]+)\)/g, (_, alt, path) => {
+        const encoded = path.split('/').map(encodeURIComponent).join('/')
+        return `![${alt}](file://${encoded})`
+      })
+          editor.commands.setContent(md, { contentType: 'markdown' })
           // Extract headings after content is set externally
           setTimeout(() => extractHeadings(editor), 50)
         }
@@ -302,7 +412,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
   return (
     <div className="flex flex-col h-full">
       {/* Row 1: nav buttons + filename + settings */}
-      <div className="flex items-center pl-20 pr-4 py-1 border-b border-[var(--border-color)]">
+      <div className="flex items-center pl-20 pr-4 py-1 border-b border-[var(--border-color)]" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
         <button
           onClick={handleToggleOutline}
           className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors shrink-0 ${
@@ -311,12 +421,14 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
               : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
           }`}
           title="大纲"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           <ListTree size={14} />
           大纲
         </button>
         <button
           onClick={handleToggleFiles}
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors shrink-0 ${
             sidebarOpen && sidebarTab === 'files'
               ? 'text-[var(--accent)]'
@@ -328,7 +440,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
           文件
         </button>
 
-        <div className="flex-1 text-center text-sm text-[var(--text-secondary)] truncate px-4">
+        <div className="flex-1 text-center text-sm text-[var(--text-secondary)] truncate px-4" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           {currentFile.name || '未命名'}
         </div>
 
@@ -336,6 +448,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
           onClick={toggleSettings}
           className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors px-2 py-1 rounded shrink-0"
           title="设置"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           <Settings size={14} />
           设置
@@ -347,6 +460,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
 
       <div className="flex-1 overflow-y-auto relative" style={{ fontSize: editorFontSize }}>
         {editor && viewMode === 'wysiwyg' && <TableToolbar editor={editor} />}
+{editor && viewMode === 'wysiwyg' && <ImageToolbar editor={editor} />}
         {/* WYSIWYG — always mounted, CSS visibility toggle (Typora hybrid rendering) */}
         <div style={{ display: viewMode === 'wysiwyg' ? 'block' : 'none', height: '100%' }}>
           {editor && <EditorContent editor={editor} />}

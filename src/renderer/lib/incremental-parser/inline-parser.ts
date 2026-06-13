@@ -35,24 +35,27 @@ export function parseInline(text: string): InlineToken[] {
   let safety = 0
 
   while (remaining.length > 0 && safety++ < 1000) {
-    let matched = false
+    // Find the EARLIEST match across all patterns (not first pattern that matches)
+    let bestMatch: RegExpExecArray | null = null
+    let bestPattern: Pattern | null = null
 
     for (const pattern of PATTERNS) {
       pattern.regex.lastIndex = 0
       const match = pattern.regex.exec(remaining)
-      if (match) {
-        // Text before the match
-        if (match.index > 0) {
-          tokens.push({ type: 'text', text: remaining.slice(0, match.index) })
-        }
-        tokens.push(pattern.createToken(match))
-        remaining = remaining.slice(match.index + match[0].length)
-        matched = true
-        break
+      if (match && (!bestMatch || match.index < bestMatch.index)) {
+        bestMatch = match
+        bestPattern = pattern
       }
     }
 
-    if (!matched) {
+    if (bestMatch && bestPattern) {
+      // Text before the match
+      if (bestMatch.index > 0) {
+        tokens.push({ type: 'text', text: remaining.slice(0, bestMatch.index) })
+      }
+      tokens.push(bestPattern.createToken(bestMatch))
+      remaining = remaining.slice(bestMatch.index + bestMatch[0].length)
+    } else {
       tokens.push({ type: 'text', text: remaining })
       break
     }

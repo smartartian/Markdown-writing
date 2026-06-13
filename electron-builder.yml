@@ -1,5 +1,5 @@
 appId: com.markdownwriting.app
-productName: Markdown writing
+productName: Markdown Writing
 directories:
   output: dist
   buildResources: resources

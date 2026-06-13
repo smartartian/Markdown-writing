@@ -29,6 +29,7 @@ const api = {
   },
   app: {
     getPath: (name: 'documents' | 'desktop' | 'home') => ipcRenderer.invoke(IPC.APP_GET_PATH, name),
+    newWindow: () => ipcRenderer.invoke('window:new'),
   },
   on: {
     menuAction: (callback: (action: string) => void) => {

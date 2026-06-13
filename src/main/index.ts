@@ -26,6 +26,7 @@ function createWindow(): void {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
     },
   })
 
@@ -59,6 +60,12 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
+})
+
+// IPC: create a new window (multi-window support)
+ipcMain.handle('window:new', () => {
+  createWindow()
+  return true
 })
 
 app.on('window-all-closed', () => {
