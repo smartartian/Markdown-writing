@@ -179,6 +179,8 @@
 .tiptap-editor img {
   border-radius: 4px;
   cursor: pointer;
+  max-width: 600px;
+  height: auto;
 }
 
 .tiptap-editor img.ProseMirror-selectednode {

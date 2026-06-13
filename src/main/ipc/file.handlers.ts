@@ -87,7 +87,6 @@ export function registerFileHandlers(ipc: typeof ipcMain): void {
   })
 
   ipc.handle(IPC.SAVE_IMAGE, async (_event, base64Data: string, docDir: string | null) => {
-    // Determine target directory
     let targetDir: string
     if (docDir) {
       targetDir = `${docDir}/assets`
@@ -96,6 +95,18 @@ export function registerFileHandlers(ipc: typeof ipcMain): void {
       targetDir = `${appData}/Markdown writing/images`
     }
     const filename = await fileService.saveBase64Image(base64Data, targetDir)
+    return { filename, dir: targetDir }
+  })
+
+  ipc.handle(IPC.COPY_IMAGE, async (_event, originPath: string, docDir: string | null) => {
+    let targetDir: string
+    if (docDir) {
+      targetDir = `${docDir}/assets`
+    } else {
+      const appData = app.getPath('documents')
+      targetDir = `${appData}/Markdown writing/images`
+    }
+    const filename = await fileService.copyImageFile(originPath, targetDir)
     return { filename, dir: targetDir }
   })
 }

@@ -10,6 +10,7 @@ import { WELCOME_CONTENT } from '../../../shared/defaults'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
 import { ListTree, FolderOpen, Settings } from 'lucide-react'
 import { SearchBar } from './SearchBar'
+import type { JSONContent } from '../../lib/incremental-parser'
 import { TableToolbar } from './TableToolbar'
 import '../../assets/styles/editor.css'
 
@@ -37,7 +38,8 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
   const toggleTypewriterMode = useUIStore((s) => s.toggleTypewriterMode)
   const toggleSettings = useUIStore((s) => s.toggleSettings)
   const [content, setContent] = useState(initialContent || WELCOME_CONTENT)
-  const [viewMode, setViewMode] = useState<'wysiwyg' | 'source'>('wysiwyg')
+  const storeViewMode = useEditorStore((s) => s.viewMode)
+  const [viewMode, setViewMode] = useState<'wysiwyg' | 'source'>(storeViewMode)
   const [showSearch, setShowSearch] = useState(false)
   const contentRef = useRef(content)
   contentRef.current = content
@@ -55,7 +57,7 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
   const editor = useEditor({
     extensions: editorExtensions,
     content: initialContent || WELCOME_CONTENT,
-    contentType: 'markdown',
+    contentType: initialContent ? 'markdown' : 'markdown',
     onCreate: ({ editor: ed }) => {
       extractHeadings(ed)
       const md = ed.getMarkdown?.() ?? ''
@@ -77,105 +79,74 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
         spellcheck: 'false',
       },
       handlePaste: (view, event) => {
+        // Check clipboard items for image data (files is for drag-drop, not paste)
         const items = event.clipboardData?.items
         if (!items) return false
-
         for (const item of Array.from(items)) {
           if (item.type.startsWith('image/')) {
             event.preventDefault()
-            const file = item.getAsFile()
-            if (!file) continue
-
-            // Insert immediately with blob URL (synchronous)
-            const blobUrl = URL.createObjectURL(file)
-            const node = view.state.schema.nodes.image.create({ src: blobUrl })
-            view.dispatch(view.state.tr.replaceSelectionWith(node))
-
-            // Save to disk asynchronously, then update with permanent path
+            const blob = item.getAsFile()
+            if (!blob) continue
             const reader = new FileReader()
-            reader.onload = (e) => {
-              const dataUrl = e.target?.result as string
+            reader.onload = async () => {
+              const dataUrl = reader.result as string
               const docPath = useFileStore.getState().currentFile.path
               const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
-              window.api.file.saveImage(dataUrl, docDir).then((result) => {
-                const newSrc = docDir ? `assets/${result.filename}` : result.filename
-                const { from } = view.state.selection
-                const pos = view.state.doc.resolve(from)
-                const nodeAt = pos.nodeAfter
-                if (nodeAt?.type.name === 'image' && nodeAt.attrs.src === blobUrl) {
-                  view.dispatch(view.state.tr.setNodeAttribute(from - 1, 'src', newSrc))
-                }
-                URL.revokeObjectURL(blobUrl)
-              }).catch(() => { /* keep blob URL */ })
+              try {
+                const result = await window.api.file.saveImage(dataUrl, docDir)
+                // Display: use file:// absolute path (Electron resolves correctly)
+                const displaySrc = `file://${result.dir}/${result.filename}`
+                const node = view.state.schema.nodes.image.create({ src: displaySrc })
+                view.dispatch(view.state.tr.replaceSelectionWith(node))
+                // Markdown: use relative path for portability
+                const mdSrc = docDir ? `assets/${result.filename}` : `${result.dir}/${result.filename}`
+                contentRef.current += `\n![image](${mdSrc})\n`
+                setContent(contentRef.current)
+              } catch {
+                const node = view.state.schema.nodes.image.create({ src: dataUrl })
+                view.dispatch(view.state.tr.replaceSelectionWith(node))
+              }
             }
-            reader.readAsDataURL(file)
+            reader.readAsDataURL(blob)
             return true
           }
         }
-
-        // HTML with <img> tag (browser copy image)
-        const htmlItem = Array.from(items).find(i => i.type === 'text/html')
-        if (htmlItem) {
-          htmlItem.getAsString((html) => {
-            const match = html.match(/<img[^>]+src=["']([^"']+)["']/i)
-            if (match && match[1]) {
-              event.preventDefault()
-              const src = match[1]
-              if (src.startsWith('data:')) {
-                // Insert with data URL first, then save to disk
-                view.dispatch(view.state.tr.replaceSelectionWith(
-                  view.state.schema.nodes.image.create({ src }),
-                ))
-                const docPath = useFileStore.getState().currentFile.path
-                const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
-                window.api.file.saveImage(src, docDir).then((result) => {
-                  const newSrc = docDir ? `assets/${result.filename}` : result.filename
-                  const { from } = view.state.selection
-                  const pos = view.state.doc.resolve(from)
-                  const nodeAt = pos.nodeAfter
-                  if (nodeAt?.type.name === 'image') {
-                    view.dispatch(view.state.tr.setNodeAttribute(from - 1, 'src', newSrc))
-                  }
-                }).catch(() => { /* keep data URL */ })
-              } else if (/^https?:/.test(src)) {
-                view.dispatch(view.state.tr.replaceSelectionWith(
-                  view.state.schema.nodes.image.create({ src }),
-                ))
-              }
-            }
-          })
-        }
-
         return false
       },
       handleDrop: (view, event) => {
-        const files = event.dataTransfer?.files
-        if (!files) return false
+        const file = event.dataTransfer?.files?.[0]
+        if (!file?.type.startsWith('image/')) return false
+        event.preventDefault()
+        const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })
+        const docPath = useFileStore.getState().currentFile.path
+        const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
 
-        for (const file of Array.from(files)) {
-          if (file.type.startsWith('image/')) {
-            event.preventDefault()
-            event.stopPropagation()
-            // Insert immediately with blob URL
-            const blobUrl = URL.createObjectURL(file)
-            const node = view.state.schema.nodes.image.create({ src: blobUrl })
-            const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })
-            view.dispatch(pos ? view.state.tr.insert(pos.pos, node) : view.state.tr.replaceSelectionWith(node))
-            // Save to disk async
+        // Typora-style: if file has a local path (Finder drag), copy directly
+        const filePath = (file as any).path
+        if (filePath) {
+          window.api.file.copyImage(filePath, docDir).then((result) => {
+            const displaySrc = `file://${result.dir}/${result.filename}`
+            const node = view.state.schema.nodes.image.create({ src: displaySrc })
+            view.dispatch(dropPos ? view.state.tr.insert(dropPos.pos, node) : view.state.tr.replaceSelectionWith(node))
+          }).catch(() => {
+            // Fallback: read as data URL
             const reader = new FileReader()
-            reader.onload = (e) => {
-              const dataUrl = e.target?.result as string
-              const docPath = useFileStore.getState().currentFile.path
-              const docDir = docPath ? docPath.replace(/\/[^/]+$/, '') : null
-              window.api.file.saveImage(dataUrl, docDir).then((result) => {
-                URL.revokeObjectURL(blobUrl)
-              }).catch(() => { /* keep blob URL */ })
+            reader.onload = () => {
+              const node = view.state.schema.nodes.image.create({ src: reader.result as string })
+              view.dispatch(dropPos ? view.state.tr.insert(dropPos.pos, node) : view.state.tr.replaceSelectionWith(node))
             }
             reader.readAsDataURL(file)
-            return true
+          })
+        } else {
+          // No local path (web drag), use data URL
+          const reader = new FileReader()
+          reader.onload = () => {
+            const node = view.state.schema.nodes.image.create({ src: reader.result as string })
+            view.dispatch(dropPos ? view.state.tr.insert(dropPos.pos, node) : view.state.tr.replaceSelectionWith(node))
           }
+          reader.readAsDataURL(file)
         }
-        return false
+        return true
       },
     },
   })
@@ -243,7 +214,6 @@ export function MarkdownEditor({ initialContent, onContentChange }: MarkdownEdit
       setViewMode('source')
       setViewModeStore('source')
     } else {
-      // Sync source mode changes back to the TipTap editor
       if (editor) {
         editor.commands.setContent(contentRef.current, { contentType: 'markdown' })
       }

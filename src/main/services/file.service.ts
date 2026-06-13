@@ -79,7 +79,6 @@ export async function deleteFile(filePath: string): Promise<void> {
 }
 
 export async function saveBase64Image(base64Data: string, targetDir: string): Promise<string> {
-  // Remove data URL prefix if present
   const match = base64Data.match(/^data:image\/(\w+);base64,(.+)$/)
   let ext = 'png'
   let data = base64Data
@@ -94,5 +93,16 @@ export async function saveBase64Image(base64Data: string, targetDir: string): Pr
   await mkdir(targetDir, { recursive: true })
   const filePath = `${targetDir}/${filename}`
   await fsWriteFile(filePath, Buffer.from(data, 'base64'))
+  return filename
+}
+
+export async function copyImageFile(originPath: string, targetDir: string): Promise<string> {
+  const ext = basename(originPath).split('.').pop() || 'png'
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '')
+  const filename = `image-${timestamp}.${ext}`
+
+  await mkdir(targetDir, { recursive: true })
+  const targetPath = `${targetDir}/${filename}`
+  await fsWriteFile(targetPath, await fsReadFile(originPath))
   return filename
 }

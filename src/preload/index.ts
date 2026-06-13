@@ -11,6 +11,7 @@ const api = {
     create: (dirPath: string, name: string) => ipcRenderer.invoke(IPC.FILE_CREATE, dirPath, name),
     delete: (filePath: string) => ipcRenderer.invoke(IPC.FILE_DELETE, filePath),
     saveImage: (base64Data: string, docDir: string | null) => ipcRenderer.invoke(IPC.SAVE_IMAGE, base64Data, docDir),
+    copyImage: (originPath: string, docDir: string | null) => ipcRenderer.invoke(IPC.COPY_IMAGE, originPath, docDir),
   },
   dir: {
     list: (path: string) => ipcRenderer.invoke(IPC.DIR_LIST, path),
