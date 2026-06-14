@@ -21,6 +21,7 @@ export interface ElectronAPI {
     openPath: (path: string) => Promise<FileInfo | null>
     create: (dirPath: string, name: string) => Promise<{ path: string; name: string }>
     delete: (filePath: string) => Promise<boolean>
+    rename: (oldPath: string, newName: string) => Promise<{ path: string; name: string }>
     saveImage: (base64Data: string, docDir: string | null) => Promise<{ filename: string; dir: string }>
     copyImage: (originPath: string, docDir: string | null) => Promise<{ filename: string; dir: string }>
   }

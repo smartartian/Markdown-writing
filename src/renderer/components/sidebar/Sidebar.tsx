@@ -59,7 +59,12 @@ export function Sidebar({ onOpenFile }: SidebarProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {sidebarTab === 'files' ? <FileTree onOpenFile={onOpenFile} /> : <OutlinePanel />}
+        <div style={{ display: sidebarTab === 'files' ? 'block' : 'none', height: '100%' }}>
+          <FileTree onOpenFile={onOpenFile} />
+        </div>
+        <div style={{ display: sidebarTab === 'outline' ? 'block' : 'none', height: '100%' }}>
+          <OutlinePanel />
+        </div>
       </div>
     </div>
   )

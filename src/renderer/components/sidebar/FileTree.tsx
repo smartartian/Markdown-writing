@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useFileStore } from '../../stores/file.store'
 import type { FileTreeNode } from '../../../preload/index.d'
-import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen, RefreshCw, FilePlus, FolderPlus, Trash2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen, RefreshCw, FilePlus, FolderPlus, Trash2, Pencil, FolderOpen as FolderOpenIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 interface ContextMenu {
   x: number
   y: number
   targetPath: string
+  targetName: string
   targetIsDir: boolean
 }
 
@@ -19,11 +20,13 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
   const fileTree = useFileStore((s) => s.fileTree)
   const setFileTree = useFileStore((s) => s.setFileTree)
   const currentFile = useFileStore((s) => s.currentFile)
+  const setCurrentFile = useFileStore((s) => s.setCurrentFile)
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set())
   const [rootPath, setRootPath] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     setLoading(true)
@@ -66,24 +69,30 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
     })
   }
 
-  // Right-click context menu
-  const handleContextMenu = (e: React.MouseEvent, path: string, isDir: boolean) => {
+  const handleContextMenu = (e: React.MouseEvent, path: string, name: string, isDir: boolean) => {
     e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, targetPath: path, targetIsDir: isDir })
+    setContextMenu({ x: e.clientX, y: e.clientY, targetPath: path, targetName: name, targetIsDir: isDir })
   }
 
-  // Close menu on outside click
   useEffect(() => {
     const handler = () => setContextMenu(null)
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [])
 
-  const handleNewFile = async () => {
-    if (!contextMenu) return
-    const parentPath = contextMenu.targetIsDir ? contextMenu.targetPath : contextMenu.targetPath.replace(/\/[^/]+$/, '')
+  useEffect(() => {
+    if (renaming && renameInputRef.current) {
+      renameInputRef.current.focus()
+      renameInputRef.current.select()
+    }
+  }, [renaming])
+
+  const handleNewFile = async (parentDir?: string, parentName?: string) => {
+    const dirPath = parentDir ||
+      (contextMenu?.targetIsDir ? contextMenu.targetPath : contextMenu.targetPath.replace(/\/[^/]+$/, ''))
+    if (!dirPath) return
     const name = `未命名${Date.now().toString(36)}`
-    await window.api.file.create(parentPath, name)
+    await window.api.file.create(dirPath, name)
     if (rootPath) loadDirectory(rootPath)
     setContextMenu(null)
   }
@@ -100,8 +109,37 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
   const handleDelete = async () => {
     if (!contextMenu) return
     const deleted = await window.api.file.delete(contextMenu.targetPath)
-    if (deleted && rootPath) loadDirectory(rootPath)
+    if (deleted && rootPath) {
+      if (currentFile.path === contextMenu.targetPath) {
+        setCurrentFile({ path: '', name: '' })
+      }
+      loadDirectory(rootPath)
+    }
     setContextMenu(null)
+  }
+
+  const startRename = (path: string, name: string) => {
+    setRenaming({ path, name })
+    setContextMenu(null)
+  }
+
+  const submitRename = async () => {
+    if (!renaming || !renameInputRef.current) return
+    const newName = renameInputRef.current.value.trim()
+    if (!newName || newName === renaming.name) {
+      setRenaming(null)
+      return
+    }
+    try {
+      const result = await window.api.file.rename(renaming.path, newName)
+      if (currentFile.path === renaming.path) {
+        setCurrentFile({ ...currentFile, path: result.path, name: result.name })
+      }
+      if (rootPath) loadDirectory(rootPath)
+    } catch {
+      console.error('重命名失败')
+    }
+    setRenaming(null)
   }
 
   const renderFileName = (name: string) => name.replace(/\.(md|markdown|txt)$/i, '')
@@ -109,39 +147,67 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
   const renderNode = (node: FileTreeNode, depth: number) => {
     const isOpen = openFolders.has(node.path)
     const isActive = currentFile.path === node.path
+    const isRenaming = renaming?.path === node.path
 
     if (node.isDirectory) {
       return (
         <div key={node.path}>
-          <button
-            onClick={() => toggleFolder(node.path)}
-            onContextMenu={(e) => handleContextMenu(e, node.path, true)}
-            className="flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)]"
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
-          >
-            {isOpen ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
-            {isOpen ? <FolderOpen size={14} className="shrink-0" /> : <Folder size={14} className="shrink-0" />}
-            <span className="truncate">{node.name}</span>
-          </button>
+          {isRenaming ? (
+            <div style={{ paddingLeft: `${depth * 16 + 8}px` }} className="px-2 py-0.5">
+              <input
+                ref={renameInputRef}
+                defaultValue={node.name}
+                onBlur={submitRename}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(null) }}
+                className="w-full text-sm bg-[var(--bg-tertiary)] border border-[var(--accent)] rounded px-1 py-0 outline-none text-[var(--text-primary)]"
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => toggleFolder(node.path)}
+              onContextMenu={(e) => handleContextMenu(e, node.path, node.name, true)}
+              onDoubleClick={() => startRename(node.path, node.name)}
+              className="flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)]"
+              style={{ paddingLeft: `${depth * 16 + 8}px` }}
+            >
+              {isOpen ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+              {isOpen ? <FolderOpen size={14} className="shrink-0" /> : <Folder size={14} className="shrink-0" />}
+              <span className="truncate">{node.name}</span>
+            </button>
+          )}
           {isOpen && node.children?.map((child) => renderNode(child, depth + 1))}
         </div>
       )
     }
 
     return (
-      <button
-        key={node.path}
-        onClick={() => handleOpenFile(node.path)}
-        onContextMenu={(e) => handleContextMenu(e, node.path, false)}
-        className={cn(
-          'flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors',
-          isActive ? 'bg-[var(--bg-tertiary)] text-[var(--accent)] font-medium' : 'text-[var(--text-secondary)]',
+      <div key={node.path}>
+        {isRenaming ? (
+          <div style={{ paddingLeft: `${depth * 16 + 8}px` }} className="px-2 py-0.5">
+            <input
+              ref={renameInputRef}
+              defaultValue={node.name}
+              onBlur={submitRename}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenaming(null) }}
+              className="w-full text-sm bg-[var(--bg-tertiary)] border border-[var(--accent)] rounded px-1 py-0 outline-none text-[var(--text-primary)]"
+            />
+          </div>
+        ) : (
+          <button
+            onClick={() => handleOpenFile(node.path)}
+            onContextMenu={(e) => handleContextMenu(e, node.path, node.name, false)}
+            onDoubleClick={() => startRename(node.path, node.name)}
+            className={cn(
+              'flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors',
+              isActive ? 'bg-[var(--bg-tertiary)] text-[var(--accent)] font-medium' : 'text-[var(--text-secondary)]',
+            )}
+            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          >
+            <FileText size={14} className="shrink-0" />
+            <span className="truncate">{renderFileName(node.name)}</span>
+          </button>
         )}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-      >
-        <FileText size={14} className="shrink-0" />
-        <span className="truncate">{renderFileName(node.name)}</span>
-      </button>
+      </div>
     )
   }
 
@@ -149,27 +215,6 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Folder selector */}
-      <div className="px-3 py-3 border-b border-[var(--border-color)]">
-        <button
-          onClick={handleSelectFolder}
-          className="flex items-center gap-2 w-full px-3 py-1.5 rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] text-sm hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          <FolderOpen size={15} />
-          选择文件夹
-        </button>
-        {rootPath && (
-          <div className="mt-2 flex items-center justify-between">
-            <div className="text-xs text-[var(--text-muted)] truncate flex-1" title={rootPath}>
-              {rootPath.split('/').pop() || rootPath}
-            </div>
-            <button onClick={handleRefresh} className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] transition-colors shrink-0" title="刷新">
-              <RefreshCw size={13} />
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* File list */}
       <div className="flex-1 overflow-y-auto py-1">
         {loading ? (
@@ -188,19 +233,55 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
             )}
           </>
         ) : (
-          <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">点击上方按钮选择一个文件夹</div>
+          <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">点击下方按钮选择一个文件夹</div>
+        )}
+      </div>
+
+      {/* Folder selector — moved to bottom */}
+      <div className="px-3 py-3 border-t border-[var(--border-color)]">
+        {rootPath && (
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-xs text-[var(--text-muted)] truncate flex-1" title={rootPath}>
+              {rootPath.split('/').pop() || rootPath}
+            </div>
+            <button onClick={handleRefresh} className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] transition-colors shrink-0" title="刷新">
+              <RefreshCw size={13} />
+            </button>
+          </div>
+        )}
+        <button
+          onClick={handleSelectFolder}
+          className="flex items-center gap-2 w-full px-3 py-1.5 rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] text-sm hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          <FolderOpenIcon size={15} />
+          选择文件夹
+        </button>
+        {rootPath && (
+          <button
+            onClick={() => handleNewFile(rootPath)}
+            className="flex items-center gap-2 w-full mt-1.5 px-3 py-1.5 rounded-md text-[var(--text-muted)] text-xs hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <FilePlus size={13} />
+            新建 Markdown 文件
+          </button>
         )}
       </div>
 
       {/* Context menu */}
       {contextMenu && (
         <div
-          ref={menuRef}
           className="fixed z-50 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg shadow-lg py-1 min-w-[160px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
-            onClick={handleNewFile}
+            onClick={() => startRename(contextMenu.targetPath, contextMenu.targetName)}
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
+          >
+            <Pencil size={14} />
+            重命名
+          </button>
+          <button
+            onClick={() => handleNewFile()}
             className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
           >
             <FilePlus size={14} />

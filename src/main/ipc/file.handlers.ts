@@ -1,4 +1,5 @@
 import { BrowserWindow, dialog, ipcMain, app } from 'electron'
+import { rename as fsRename } from 'fs/promises'
 import { IPC } from '../../shared/ipc-channels'
 import * as fileService from '../services/file.service'
 
@@ -65,6 +66,13 @@ export function registerFileHandlers(ipc: typeof ipcMain): void {
     const dirPath = `${parentPath}/${name}`
     await fileService.createDirectory(dirPath)
     return { path: dirPath, name }
+  })
+
+  ipc.handle(IPC.FILE_RENAME, async (_event, oldPath: string, newName: string) => {
+    const dir = oldPath.replace(/\/[^/]+$/, '')
+    const newPath = `${dir}/${newName}`
+    await fsRename(oldPath, newPath)
+    return { path: newPath, name: newName }
   })
 
   ipc.handle(IPC.FILE_DELETE, async (_event, filePath: string) => {
