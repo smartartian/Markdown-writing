@@ -75,6 +75,20 @@ export function registerFileHandlers(ipc: typeof ipcMain): void {
     return { path: newPath, name: newName }
   })
 
+  ipc.handle(IPC.FILE_BATCH_DELETE, async (_event, filePaths: string[]) => {
+    const deleted: string[] = []
+    const failed: string[] = []
+    for (const fp of filePaths) {
+      try {
+        await fileService.deleteFile(fp)
+        deleted.push(fp)
+      } catch {
+        failed.push(fp)
+      }
+    }
+    return { deleted, failed }
+  })
+
   ipc.handle(IPC.FILE_DELETE, async (_event, filePath: string) => {
     const win = BrowserWindow.getFocusedWindow()
     if (!win) return false

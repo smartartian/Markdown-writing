@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useEditorStore } from './stores/editor.store'
 import { useFileStore } from './stores/file.store'
 import { useUIStore } from './stores/ui.store'
@@ -133,12 +133,95 @@ export default function App() {
     onExportHtml: handleExportHtml,
   })
 
+  // Listen for open-file event from main process (dock drop, "Open With")
+  useEffect(() => {
+    const unsubscribe = window.api.on.openFile(async (filePath: string) => {
+      try {
+        const file = await window.api.file.openPath(filePath)
+        if (file) openFile(file)
+      } catch { /* ignore */ }
+    })
+    return unsubscribe
+  }, [])
+
+  // Handle drag-and-drop of files from Finder (capture phase to beat ProseMirror)
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = document.getElementById('app-root')
+    if (!el) return
+
+    const isInsideSidebar = (x: number, y: number) => {
+      const sidebarEl = el.querySelector('[data-sidebar]')
+      if (!sidebarEl) return false
+      const rect = sidebarEl.getBoundingClientRect()
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+    }
+
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+
+    const onDrop = async (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const files = Array.from(e.dataTransfer?.files || [])
+      if (files.length === 0) return
+
+      // Area detection: sidebar → load folder; elsewhere → open files
+      const onSidebar = isInsideSidebar(e.clientX, e.clientY)
+
+      for (let i = 0; i < files.length; i++) {
+        const filePath = (files[i] as any).path as string | undefined
+        if (!filePath) continue
+
+        if (onSidebar) {
+          // Sidebar drop: try loading as folder first
+          try {
+            const tree = await window.api.dir.list(filePath)
+            if (Array.isArray(tree)) {
+              useFileStore.getState().setFileTree(tree)
+              useFileStore.getState().setRootPath(filePath)
+              continue
+            }
+          } catch { /* not a directory, fall through */ }
+        }
+
+        // Open file: first file in current window, rest in new windows
+        const info = await window.api.file.openPath(filePath).catch(() => null)
+        if (!info) continue
+
+        if (i === 0 && !currentFile.path) {
+          // First file + empty window → open in current, load parent dir
+          openFile(info)
+          const parentDir = filePath.replace(/\/[^/]+$/, '')
+          window.api.dir.list(parentDir).then(tree => {
+            if (Array.isArray(tree)) {
+              useFileStore.getState().setFileTree(tree)
+              useFileStore.getState().setRootPath(parentDir)
+            }
+          }).catch(() => {})
+        } else {
+          // Subsequent files → new window
+          await window.api.app.newWindow(filePath)
+        }
+      }
+    }
+
+    el.addEventListener('dragover', onDragOver, true)
+    el.addEventListener('drop', onDrop, true)
+    return () => {
+      el.removeEventListener('dragover', onDragOver, true)
+      el.removeEventListener('drop', onDrop, true)
+    }
+  }, [currentFile.path, openFile])
+
   if (showSettings) {
     return <SettingsPage />
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
+    <div id="app-root" className="flex flex-col h-screen bg-[var(--bg-primary)]">
       <div className="flex flex-1 overflow-hidden">
         <Sidebar onOpenFile={openFile} />
         <div className="flex flex-col flex-1 overflow-hidden">

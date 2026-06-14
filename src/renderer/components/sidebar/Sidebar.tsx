@@ -16,17 +16,18 @@ export function Sidebar({ onOpenFile }: SidebarProps) {
 
   return (
     <div
+      data-sidebar
       className={cn(
         'flex flex-col border-r border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden transition-[width] duration-300 ease-out',
         sidebarOpen ? 'w-60' : 'w-0 border-r-0',
       )}
     >
-      {/* macOS traffic light spacer */}
-      <div className="h-10 shrink-0" />
+      {/* macOS traffic light spacer — draggable */}
+      <div className="h-10 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
 
       {/* Header with tabs — Typora style */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)]" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <div className="flex gap-4">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)]" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+        <div className="flex gap-4" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             onClick={() => setSidebarTab('files')}
             className={cn(
@@ -53,6 +54,7 @@ export function Sidebar({ onOpenFile }: SidebarProps) {
         <button
           onClick={toggleSidebar}
           className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           <PanelLeftClose size={14} />
         </button>

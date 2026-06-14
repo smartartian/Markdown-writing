@@ -2,7 +2,7 @@
   "name": "markdown-writing",
   "productName": "Markdown Writing",
   "version": "1.0.0",
-  "description": "A WYSIWYG markdown editor",
+  "description": "A WYSIWYG Markdown editor — inspired by Typora, built on Electron + TipTap, supporting LaTeX formulas, file management, and macOS-native experience.",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

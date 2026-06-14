@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useFileStore } from '../../stores/file.store'
 import type { FileTreeNode } from '../../../preload/index.d'
-import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen, RefreshCw, FilePlus, FolderPlus, Trash2, Pencil, FolderOpen as FolderOpenIcon } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Folder, FolderOpen, RefreshCw, FilePlus, FolderPlus, Trash2, Pencil, FolderOpen as FolderOpenIcon, Check } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 interface ContextMenu {
@@ -19,14 +19,18 @@ interface FileTreeProps {
 export function FileTree({ onOpenFile }: FileTreeProps) {
   const fileTree = useFileStore((s) => s.fileTree)
   const setFileTree = useFileStore((s) => s.setFileTree)
+  const rootPath = useFileStore((s) => s.rootPath)
+  const setRootPath = useFileStore((s) => s.setRootPath)
   const currentFile = useFileStore((s) => s.currentFile)
   const setCurrentFile = useFileStore((s) => s.setCurrentFile)
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set())
-  const [rootPath, setRootPath] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
   const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null)
+  const [creatingFile, setCreatingFile] = useState<{ parentDir: string; defaultName: string } | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const newFileInputRef = useRef<HTMLInputElement>(null)
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     setLoading(true)
@@ -69,6 +73,31 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
     })
   }
 
+  const toggleSelect = (path: string, isDir: boolean, metaKey: boolean) => {
+    if (isDir) return // don't select directories
+    setSelectedFiles(prev => {
+      const next = new Set(prev)
+      if (metaKey) {
+        next.has(path) ? next.delete(path) : next.add(path)
+      } else {
+        next.clear()
+        next.add(path)
+      }
+      return next
+    })
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedFiles.size === 0) return
+    const paths = Array.from(selectedFiles)
+    const result = await window.api.file.batchDelete(paths)
+    if (result.deleted.includes(currentFile.path)) {
+      setCurrentFile({ path: '', name: '' })
+    }
+    if (rootPath) loadDirectory(rootPath)
+    setSelectedFiles(new Set())
+  }
+
   const handleContextMenu = (e: React.MouseEvent, path: string, name: string, isDir: boolean) => {
     e.preventDefault()
     setContextMenu({ x: e.clientX, y: e.clientY, targetPath: path, targetName: name, targetIsDir: isDir })
@@ -87,14 +116,47 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
     }
   }, [renaming])
 
-  const handleNewFile = async (parentDir?: string, parentName?: string) => {
-    const dirPath = parentDir ||
-      (contextMenu?.targetIsDir ? contextMenu.targetPath : contextMenu.targetPath.replace(/\/[^/]+$/, ''))
-    if (!dirPath) return
-    const name = `未命名${Date.now().toString(36)}`
-    await window.api.file.create(dirPath, name)
-    if (rootPath) loadDirectory(rootPath)
+  useEffect(() => {
+    if (creatingFile && newFileInputRef.current) {
+      newFileInputRef.current.focus()
+      newFileInputRef.current.select()
+    }
+  }, [creatingFile])
+
+
+  const startNewFile = (parentDir: string) => {
+    // Find an available file name: 未命名, 未命名1, 未命名2, ...
+    // Check existing files in the target directory
+    const children = parentDir === rootPath
+      ? fileTree  // root dir — check top-level items
+      : (findDirNode(fileTree, parentDir)?.children || [])
+    const existing = new Set(children.filter(n => !n.isDirectory).map(n => n.name))
+    let name = '未命名'
+    let i = 1
+    while (existing.has(`${name}.md`)) {
+      name = `未命名${i}`
+      i++
+    }
+    setCreatingFile({ parentDir, defaultName: name })
     setContextMenu(null)
+  }
+
+  const submitNewFile = async () => {
+    if (!creatingFile || !newFileInputRef.current) return
+    let baseName = newFileInputRef.current.value.trim()
+    if (!baseName) {
+      setCreatingFile(null)
+      return
+    }
+    // Strip .md suffix if user typed it
+    if (baseName.endsWith('.md')) baseName = baseName.slice(0, -3)
+    if (!baseName) {
+      setCreatingFile(null)
+      return
+    }
+    await window.api.file.create(creatingFile.parentDir, baseName)
+    if (rootPath) loadDirectory(rootPath)
+    setCreatingFile(null)
   }
 
   const handleNewFolder = async () => {
@@ -194,16 +256,30 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
           </div>
         ) : (
           <button
-            onClick={() => handleOpenFile(node.path)}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey) {
+                toggleSelect(node.path, false, true)
+              } else {
+                if (selectedFiles.size > 0) {
+                  toggleSelect(node.path, false, false)
+                }
+                handleOpenFile(node.path)
+              }
+            }}
             onContextMenu={(e) => handleContextMenu(e, node.path, node.name, false)}
             onDoubleClick={() => startRename(node.path, node.name)}
             className={cn(
-              'flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors',
+              'flex items-center gap-1 w-full px-2 py-0.5 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors group',
               isActive ? 'bg-[var(--bg-tertiary)] text-[var(--accent)] font-medium' : 'text-[var(--text-secondary)]',
+              selectedFiles.has(node.path) ? 'bg-[var(--accent)]/15 ring-1 ring-inset ring-[var(--accent)]/30' : '',
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
-            <FileText size={14} className="shrink-0" />
+            {selectedFiles.has(node.path) ? (
+              <Check size={14} className="shrink-0 text-[var(--accent)]" />
+            ) : (
+              <FileText size={14} className="shrink-0" />
+            )}
             <span className="truncate">{renderFileName(node.name)}</span>
           </button>
         )}
@@ -216,7 +292,7 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
   return (
     <div className="flex flex-col h-full">
       {/* File list */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto py-1" onClick={(e) => { if (e.target === e.currentTarget) setSelectedFiles(new Set()) }}>
         {loading ? (
           <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">读取中...</div>
         ) : rootPath ? (
@@ -236,6 +312,22 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
           <div className="px-4 py-8 text-center text-sm text-[var(--text-muted)]">点击下方按钮选择一个文件夹</div>
         )}
       </div>
+
+      {/* Selection action bar */}
+      {selectedFiles.size > 0 && (
+        <div className="px-3 py-2 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-[var(--text-muted)]">{selectedFiles.size} 个文件已选中</span>
+            <button
+              onClick={handleBatchDelete}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-500 hover:bg-red-500/10 transition-colors"
+            >
+              <Trash2 size={12} />
+              删除选中
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Folder selector — moved to bottom */}
       <div className="px-3 py-3 border-t border-[var(--border-color)]">
@@ -257,13 +349,30 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
           选择文件夹
         </button>
         {rootPath && (
-          <button
-            onClick={() => handleNewFile(rootPath)}
-            className="flex items-center gap-2 w-full mt-1.5 px-3 py-1.5 rounded-md text-[var(--text-muted)] text-xs hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-          >
-            <FilePlus size={13} />
-            新建 Markdown 文件
-          </button>
+          creatingFile ? (
+            <div className="flex items-center gap-1 mt-1.5 px-3 py-1 rounded-md bg-[var(--bg-tertiary)] border border-[var(--accent)]">
+              <input
+                ref={newFileInputRef}
+                key={creatingFile.defaultName}
+                defaultValue={creatingFile.defaultName}
+                onBlur={submitNewFile}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitNewFile()
+                  if (e.key === 'Escape') setCreatingFile(null)
+                }}
+                className="flex-1 text-xs bg-transparent border-none outline-none text-[var(--text-primary)]"
+              />
+              <span className="text-xs text-[var(--text-muted)] shrink-0">.md</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => startNewFile(rootPath)}
+              className="flex items-center gap-2 w-full mt-1.5 px-3 py-1.5 rounded-md text-[var(--text-muted)] text-xs hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <FilePlus size={13} />
+              新建 Markdown 文件
+            </button>
+          )
         )}
       </div>
 
@@ -281,7 +390,10 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
             重命名
           </button>
           <button
-            onClick={() => handleNewFile()}
+            onClick={() => {
+              const dirPath = contextMenu.targetIsDir ? contextMenu.targetPath : contextMenu.targetPath.replace(/\/[^/]+$/, '')
+              if (dirPath) startNewFile(dirPath)
+            }}
             className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] transition-colors"
           >
             <FilePlus size={14} />
@@ -306,6 +418,17 @@ export function FileTree({ onOpenFile }: FileTreeProps) {
       )}
     </div>
   )
+}
+
+function findDirNode(nodes: FileTreeNode[], targetPath: string): FileTreeNode | null {
+  for (const node of nodes) {
+    if (node.path === targetPath && node.isDirectory) return node
+    if (node.children) {
+      const found = findDirNode(node.children, targetPath)
+      if (found) return found
+    }
+  }
+  return null
 }
 
 function countMdFiles(nodes: FileTreeNode[]): number {

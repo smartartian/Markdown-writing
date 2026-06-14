@@ -12,12 +12,14 @@ interface FileStore {
   currentFile: CurrentFile
   isDirty: boolean
   fileTree: FileTreeNode[]
+  rootPath: string | null
 
   setCurrentFile: (file: { path: string; name: string; content?: string; lastModified?: number }) => void
   markDirty: () => void
   markClean: () => void
   clearFile: () => void
   setFileTree: (tree: FileTreeNode[]) => void
+  setRootPath: (path: string | null) => void
 }
 
 export const useFileStore = create<FileStore>((set) => ({
@@ -29,6 +31,7 @@ export const useFileStore = create<FileStore>((set) => ({
   },
   isDirty: false,
   fileTree: [],
+  rootPath: null,
 
   setCurrentFile: (file) =>
     set({
@@ -50,4 +53,5 @@ export const useFileStore = create<FileStore>((set) => ({
     }),
 
   setFileTree: (tree) => set({ fileTree: tree }),
+  setRootPath: (path) => set({ rootPath: path }),
 }))

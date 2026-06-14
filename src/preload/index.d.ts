@@ -21,6 +21,7 @@ export interface ElectronAPI {
     openPath: (path: string) => Promise<FileInfo | null>
     create: (dirPath: string, name: string) => Promise<{ path: string; name: string }>
     delete: (filePath: string) => Promise<boolean>
+    batchDelete: (filePaths: string[]) => Promise<{ deleted: string[]; failed: string[] }>
     rename: (oldPath: string, newName: string) => Promise<{ path: string; name: string }>
     saveImage: (base64Data: string, docDir: string | null) => Promise<{ filename: string; dir: string }>
     copyImage: (originPath: string, docDir: string | null) => Promise<{ filename: string; dir: string }>
@@ -41,10 +42,12 @@ export interface ElectronAPI {
   }
   app: {
     getPath: (name: 'documents' | 'desktop' | 'home') => Promise<string>
+    newWindow: (filePath?: string) => Promise<boolean>
   }
   on: {
     menuAction: (callback: (action: string) => void) => () => void
     fileChanged: (callback: (path: string) => void) => () => void
+    openFile: (callback: (path: string) => void) => () => void
   }
 }
 

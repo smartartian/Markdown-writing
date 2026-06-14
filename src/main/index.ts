@@ -11,9 +11,9 @@ app.setName('Markdown writing')
 
 let mainWindow: BrowserWindow | null = null
 
-function createWindow(): void {
+function createWindow(filePath?: string): void {
   const iconPath = join(__dirname, '../../resources/logo.png')
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 600,
@@ -30,17 +30,26 @@ function createWindow(): void {
     },
   })
 
-  const menu = createAppMenu(mainWindow)
+  const menu = createAppMenu(win)
   Menu.setApplicationMenu(menu)
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
+  win.on('closed', () => {
+    if (win === mainWindow) mainWindow = null
   })
 
+  // Store the pending file path to send after the page loads
+  if (filePath) {
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.send('event:open-file', filePath)
+    })
+  }
+
+  if (!mainWindow) mainWindow = win
+
   if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -62,9 +71,9 @@ app.whenReady().then(() => {
   })
 })
 
-// IPC: create a new window (multi-window support)
-ipcMain.handle('window:new', () => {
-  createWindow()
+// IPC: create a new window with optional file path
+ipcMain.handle('window:new', (_event, filePath?: string) => {
+  createWindow(filePath)
   return true
 })
 

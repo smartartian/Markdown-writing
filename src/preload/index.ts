@@ -10,6 +10,7 @@ const api = {
     openPath: (path: string) => ipcRenderer.invoke(IPC.FILE_OPEN_PATH, path),
     create: (dirPath: string, name: string) => ipcRenderer.invoke(IPC.FILE_CREATE, dirPath, name),
     delete: (filePath: string) => ipcRenderer.invoke(IPC.FILE_DELETE, filePath),
+    batchDelete: (filePaths: string[]) => ipcRenderer.invoke(IPC.FILE_BATCH_DELETE, filePaths),
     rename: (oldPath: string, newName: string) => ipcRenderer.invoke(IPC.FILE_RENAME, oldPath, newName),
     saveImage: (base64Data: string, docDir: string | null) => ipcRenderer.invoke(IPC.SAVE_IMAGE, base64Data, docDir),
     copyImage: (originPath: string, docDir: string | null) => ipcRenderer.invoke(IPC.COPY_IMAGE, originPath, docDir),
@@ -30,7 +31,7 @@ const api = {
   },
   app: {
     getPath: (name: 'documents' | 'desktop' | 'home') => ipcRenderer.invoke(IPC.APP_GET_PATH, name),
-    newWindow: () => ipcRenderer.invoke('window:new'),
+    newWindow: (filePath?: string) => ipcRenderer.invoke('window:new', filePath),
   },
   on: {
     menuAction: (callback: (action: string) => void) => {
@@ -42,6 +43,11 @@ const api = {
       const handler = (_event: Electron.IpcRendererEvent, path: string) => callback(path)
       ipcRenderer.on(IPC.EVENT_FILE_CHANGED, handler)
       return () => ipcRenderer.removeListener(IPC.EVENT_FILE_CHANGED, handler)
+    },
+    openFile: (callback: (path: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, path: string) => callback(path)
+      ipcRenderer.on('event:open-file', handler)
+      return () => ipcRenderer.removeListener('event:open-file', handler)
     },
   },
 }
